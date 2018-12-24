@@ -1,0 +1,69 @@
+#include "header.h"
+#include <cstring>
+
+int main() {
+    //创建KEY的共享内存组
+    int shmid[MAX_NUM];
+    key_t shKeyName = ftok("./read", 3);
+
+    for (int i = 0; i < MAX_NUM; i++) {
+        shmid[i] = shmget(shKeyName + i, sizeof(shareBuf), IPC_CREAT | 0666);
+       // std::cout << "key = " << shmid << std::endl;
+        if (shmid < 0) {
+            perror("shmget read");
+            return -1;
+        }
+        shBuf[i] = (shareBuf *) shmat(shmid[i], 0, 0);
+        shBuf[i]->over = 0;
+        memset(shBuf[i]->buf, '\0', MAX_LENGTH);
+        shBuf[i]->length = 0;
+    }
+
+    system("ipcs -m");
+
+    //闯将KEY的信号灯
+    union semun {
+        int val;    /* Value for SETVAL */
+        struct semid_ds *buf;    /* Buffer for IPC_STAT, IPC_SET */
+        unsigned short *array;  /* Array for GETALL, SETALL */
+        struct seminfo *__buf;  /* Buffer for IPC_INFO
+        (Linux-specific) */
+    };
+
+
+    int semID;
+    semID = semget(ftok(".", 2), 2, IPC_CREAT | 0666);
+
+    //信号灯赋值
+    union semun arg;
+    arg.val = 6;
+    semctl(semID, 0, SETVAL, arg);
+    arg.val = 0;
+    semctl(semID, 1, SETVAL, arg);
+    //闯将两个子进程
+    int p1, p2;
+    if ((p1 = fork()) == 0) {
+        puts("read created!\n");
+        execv("./readbuf", NULL);
+    } else if (p1 < 0) {
+        std::cout << "Fail to create thread 1!" << std::endl;
+    }else if ((p2 = fork()) == 0) {
+        puts("write created!\n");
+        execv("./writebuf", NULL);
+    } else if (p2 < 0) {
+        std::cout << "Fail to create thread 1!" << std::endl;
+    }
+
+    //等待两个子进程运行结束
+    wait(&p1);
+    wait(&p2);
+
+    //删除信号灯
+    semctl(semID, 2, IPC_RMID);
+    //删除共享内存组
+    for(int i=0;i<MAX_NUM;i++) {
+        shmctl(shmid[i], IPC_RMID, 0);
+    }
+
+    return 0;
+}
