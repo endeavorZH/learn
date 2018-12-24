@@ -1,0 +1,63 @@
+//
+// Created by ubuntu on 18-12-17.
+//
+
+#include "header.h"
+#include <string.h>
+
+int main() {
+    //获取KEY的共享内存组,建立shuzu形式的环形缓冲
+    int shmid;
+    key_t shKeyName = ftok("./read", 3);
+
+    for (int i = 0; i < MAX_NUM; i++) {
+        shmid = shmget(shKeyName + i, sizeof(shareBuf), IPC_CREAT | 0666);
+        //std::cout << "key = " << shmid << std::endl;
+        if (shmid < 0) {
+            perror("shmget read");
+            return -1;
+        }
+        shBuf[i] = (shareBuf *) shmat(shmid, 0, 0);
+        shBuf[i]->over = 0;
+        memset(shBuf[i]->buf, '\0', MAX_LENGTH);
+        shBuf[i]->length = 0;
+    }
+
+    //获取KEY的信号灯
+    int semID;
+    semID = semget(ftok(".", 2), 2, IPC_CREAT | 0666);
+
+    //打开源文件
+    FILE *fp;
+    if ((fp = fopen("read1", "rb")) == NULL) {
+        std::cout << "Fail to open file!" << std::endl;
+    }
+
+    std::cout << "prepare to read" << std::endl;
+
+    int readNum = 0;
+    int size;
+
+    while (shBuf[readNum]->over == 0) {
+
+        //信号灯p操作
+        P(semID, 0);
+        //读文件
+        size = fread(shBuf[readNum]->buf, sizeof(char), MAX_LENGTH, fp);
+
+        //移动环形缓冲区指针
+        shBuf[readNum]->length = size;
+
+        if (size < MAX_LENGTH) {
+            shBuf[readNum]->over = 1;
+            V(semID, 1);
+            break;
+        }
+        //std::cout << "read  " << shBuf[readNum]->length<<"  "<<shBuf[readNum]->over << std::endl;
+        readNum = (readNum + 1) % MAX_NUM;
+        //信号灯v操作
+        V(semID, 1);
+    }
+    fclose(fp);
+    return 0;
+}
