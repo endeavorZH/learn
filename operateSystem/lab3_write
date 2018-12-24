@@ -1,0 +1,53 @@
+//
+// Created by ubuntu on 18-12-17.
+//
+
+#include "header.h"
+#include <string.h>
+#include <sys/stat.h>
+
+int main() {
+    //创建KEY的共享内存组
+    int shmid;
+    key_t shKeyName = ftok("./read", 3);
+    for (int i = 0; i < MAX_NUM; i++) {
+        shmid = shmget(shKeyName + i, sizeof(shareBuf), IPC_CREAT | 0666);
+        //std::cout << "key = " << shmid << std::endl;
+        if (shmid < 0) {
+            perror("shmget read");
+            return -1;
+        }
+        shBuf[i] = (shareBuf *) shmat(shmid, 0, 0);
+        shBuf[i]->over = 0;
+        memset(shBuf[i]->buf, '\0', MAX_LENGTH);
+        shBuf[i]->length = 0;
+    }
+
+    int semID;
+    semID = semget(ftok(".", 2), 2, IPC_CREAT | 0666);
+
+    FILE *fp;
+    if ((fp = fopen("write", "wb")) == NULL) {
+        std::cout << "fail to create file" << std::endl;
+    }
+    std::cout<<"prepare to write"<<std::endl;
+
+    int writeNum = 0;
+    while (1) {
+        P(semID, 1);
+        //std::cout << "write  " << shBuf[writeNum]->length<<"  "<<shBuf[writeNum]->over << std::endl;
+        if(shBuf[writeNum]->over==1){
+            //std::cout << "write  " <<  shBuf[writeNum]->length<< std::endl;
+            fwrite(shBuf[writeNum]->buf, sizeof(char), shBuf[writeNum]->length, fp);
+            V(semID, 0);
+            break;
+        }
+        fwrite(shBuf[writeNum]->buf, sizeof(char), shBuf[writeNum]->length, fp);
+        writeNum = (writeNum + 1) % MAX_NUM;
+        V(semID, 0);
+    }
+
+    fclose(fp);
+    chmod("write",0777);
+    return 0;
+}
